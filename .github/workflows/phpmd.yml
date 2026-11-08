@@ -25,9 +25,6 @@ jobs:
           php-version: '8.2'
           tools: phpmd
 
-      - name: Run PHPMD
-        run: phpmd . github phpmd.xml --exclude vendor,tests || true
-
       - name: Create SARIF report
         run: phpmd . sarif phpmd.xml --exclude vendor,tests --reportfile phpmd.sarif || true
 
@@ -36,3 +33,6 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: phpmd.sarif
+
+      - name: Run PHPMD
+        run: phpmd . github phpmd.xml --exclude vendor,tests

@@ -22,7 +22,7 @@ jobs:
       - name: Run PHPCPD
         run: |
           mkdir -p build/reports
-          phpcpd --min-lines 5 --min-tokens 70 --exclude vendor --exclude tests --log-pmd build/reports/cpd-report.xml . || true
+          phpcpd --min-lines 5 --min-tokens 70 --exclude vendor --exclude tests --log-pmd build/reports/cpd-report.xml .
 
       - name: Upload reports
         if: always()
