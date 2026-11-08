@@ -1,0 +1,24 @@
+name: SlopScore AI Code Check
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  slop-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run AI Code Pattern Check
+        uses: kburrus64-max/slopscore-code@v1
+        with:
+          max: 10
+          comment: true
+          fail-on-error: true
