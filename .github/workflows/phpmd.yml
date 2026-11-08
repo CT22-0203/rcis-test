@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   phpmd:
@@ -27,4 +26,9 @@ jobs:
         run: phpmd --version
 
       - name: Run PHPMD
-        run: phpmd . github phpmd.xml --exclude 'vendor/*,tests/*'
+        run: |
+          phpmd analyze \
+            --format github \
+            --ruleset phpmd.xml \
+            --exclude 'vendor/*,tests/*' \
+            .
