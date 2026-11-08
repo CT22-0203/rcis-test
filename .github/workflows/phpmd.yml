@@ -2,20 +2,18 @@ name: PHPMD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   phpmd:
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,14 +23,8 @@ jobs:
           php-version: '8.2'
           tools: phpmd
 
-      - name: Create SARIF report
-        run: phpmd . sarif phpmd.xml --exclude vendor,tests --reportfile phpmd.sarif || true
-
-      - name: Upload SARIF file
-        if: hashFiles('phpmd.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: phpmd.sarif
+      - name: Check PHPMD Version
+        run: phpmd --version
 
       - name: Run PHPMD
-        run: phpmd . github phpmd.xml --exclude vendor,tests
+        run: phpmd . github phpmd.xml --exclude 'vendor/*,tests/*'

@@ -2,16 +2,20 @@ name: PHPCS
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
   contents: read
+  checks: write
+  pull-requests: read
 
 jobs:
   phpcs:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -19,5 +23,8 @@ jobs:
           php-version: '8.2'
           tools: phpcs, cs2pr
 
-      - name: Run PHPCS
-        run: phpcs --standard=phpcs.xml --report=checkstyle | cs2pr
+      - name: Run PHPCS and Publish Results
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          phpcs --standard=phpcs.xml --report=checkstyle | cs2pr
