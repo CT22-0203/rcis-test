@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<ruleset name="RCIS">
+    <file>.</file>
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <arg name="extensions" value="php"/>
+    <rule ref="PSR12"/>
+    <rule ref="PSR1.Methods.CamelCapsMethodName">
+        <exclude-pattern>tests/*</exclude-pattern>
+    </rule>
+</ruleset>
