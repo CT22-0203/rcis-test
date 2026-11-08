@@ -1,0 +1,10 @@
+# Turn on the rewrite engine.
+RewriteEngine On
+
+# If the request maps to an existing file or directory, serve it directly
+# (CSS, images, favicons, etc.). Only unknown paths fall through to index.php.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Send everything else to the front controller.
+RewriteRule ^ index.php [QSA,L]

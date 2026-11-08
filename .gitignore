@@ -1,0 +1,18 @@
+# Composer dependencies — rebuilt by `composer install` on CI/production
+/vendor/
+
+# Environment file — contains secrets
+/.env
+
+# IDE / OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# PHPUnit cache
+/.phpunit.cache
+/phpunit.xml.bak
+
+# User uploads if any (none yet)
+/public/uploads/
