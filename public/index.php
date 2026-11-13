@@ -1,10 +1,11 @@
 <?php
-declare(strict_types=1);
 
 /**
  * Front controller.
  * Every HTTP request lands here (via .htaccess rewrite).
  */
+
+declare(strict_types=1);
 
 // -----------------------------------------------------------------------------
 // 1. Load Composer's autoloader.

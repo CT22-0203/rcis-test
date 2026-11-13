@@ -32,6 +32,8 @@ abstract class Controller
      * after setting the Location header. That often means doing work the
      * redirect was meant to skip (like rendering a "success" page that the
      * browser will never show). exit is the correct primitive.
+     *
+     * @SuppressWarnings(PHPMD.ExitExpression)
      */
     protected function redirect(string $url): void
     {

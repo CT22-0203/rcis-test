@@ -23,15 +23,21 @@ final class Database
     private static ?PDO $instance = null;
 
     /** Private constructor: "new Database()" must never be allowed. */
-    private function __construct() {}
+    private function __construct()
+    {
+    }
 
     /** Private clone: prevents "$db2 = clone $db1" duplicating state. */
-    private function __clone() {}
+    private function __clone()
+    {
+    }
 
     /**
      * Return the shared PDO connection, creating it on first call.
      *
      * @throws PDOException if the connection fails.
+     *
+     * @SuppressWarnings(PHPMD.ShortVariable)
      */
     public static function connection(): PDO
     {

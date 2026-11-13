@@ -19,7 +19,7 @@ function url(string $path = ''): string
 {
     // rtrim strips trailing "/" from APP_URL so we don't get "//" joins
     $base = rtrim(getenv('APP_URL') ?: '', '/');
-    
+
     // ltrim strips leading "/" from $path for the same reason
     return $base . '/' . ltrim($path, '/');
 }
@@ -31,6 +31,8 @@ function url(string $path = ''): string
  * It's also just correct HTML authoring: a name containing "<script>" must be
  * displayed literally, not interpreted. ENT_QUOTES escapes both ' and ", so
  * the function is safe inside single- or double-quoted attributes.
+ *
+ * @SuppressWarnings(PHPMD.ShortMethodName)
  */
 function e(?string $value): string
 {
