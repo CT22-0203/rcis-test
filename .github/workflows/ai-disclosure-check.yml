@@ -1,24 +1,370 @@
-name: SlopScore AI Code Check
+name: AI Detection
+
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: "Fail when the score (0-100) reaches this value"
+        required: false
+        default: "10"
+        type: string
+      scope:
+        description: "What to analyze"
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - changed
 
 permissions:
   contents: read
   pull-requests: write
+  issues: write
+
+# New pushes and synchronized pull requests supersede older runs.
+concurrency:
+  group: ai-detection-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SLOP_THRESHOLD: ${{ inputs.threshold || '10' }}
+  REPORT_DIR: build/reports/slop
+  REPORT_FILE: build/reports/slop/ai-pattern-report.txt
+  SUMMARY_FILE: build/reports/slop/ai-pattern-summary.properties
 
 jobs:
-  slop-check:
+  ai-detection:
+    name: AI Detection
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Run AI Code Pattern Check
-        uses: kburrus64-max/slopscore-code@v1
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
         with:
-          max: 10
-          comment: true
-          fail-on-error: true
+          php-version: "8.2"
+          coverage: none
+
+      # The detector is dependency-free, so it runs directly without
+      # installing Composer packages just to scan source files.
+      - name: Determine files to analyze
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          DISPATCH_SCOPE: ${{ inputs.scope || 'all' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+
+          files="$REPORT_DIR/changed-files.txt"
+          : > "$files"
+
+          mode="all"
+          label="all PHP sources"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="origin/$BASE_REF"
+
+            git fetch --no-tags origin "$BASE_REF" || true
+
+            # If the base history is unavailable (unrelated or truncated
+            # history), fall back to a full scan instead of silently passing.
+            if git rev-parse --verify --quiet "$base^{commit}" >/dev/null \
+                && git merge-base "$base" HEAD >/dev/null 2>&1; then
+              mode="changed"
+              label="PHP files changed in this pull request"
+
+              # Only added/copied/modified/renamed/type-changed files are
+              # candidates; deleted files cannot be analyzed.
+              git diff --name-only --diff-filter=ACMRT \
+                "$base...HEAD" \
+                | grep -E '\.php$' \
+                | grep -v -E '^(\.github|vendor|build|node_modules|storage)/' \
+                > "$files" || true
+            else
+              echo "::warning::Could not compare against '$BASE_REF'; running a full scan."
+            fi
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] \
+              && [ "$DISPATCH_SCOPE" = "changed" ]; then
+            echo "::warning::A manual 'changed' scope has no diff base; running a full scan."
+          fi
+
+          count=$(grep -c . "$files" || true)
+
+          if [ "$mode" = "changed" ] && [ "$count" -eq 0 ]; then
+            mode="none"
+          fi
+
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+          echo "Scope: $label ($count file(s))"
+
+      - name: Run AI detection
+        id: detection
+        if: steps.scope.outputs.mode != 'none'
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          if [ "${{ steps.scope.outputs.mode }}" = "changed" ]; then
+            php .github/tools/slop/run.php \
+              --threshold "${SLOP_THRESHOLD:-10}" \
+              --files-from "$REPORT_DIR/changed-files.txt" \
+              . "$REPORT_FILE"
+          else
+            php .github/tools/slop/run.php \
+              --threshold "${SLOP_THRESHOLD:-10}" \
+              . "$REPORT_FILE"
+          fi
+
+          status=$?
+
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+          # Exit code 1 means the threshold was reached (aggregate score or a
+          # single file); anything else is a tool failure. Do not fail here:
+          # the gate step reports both cases with a clear message, and the
+          # report is still uploaded.
+          case "$status" in
+            0)
+              echo "detected=false" >> "$GITHUB_OUTPUT"
+              echo "tool_error=false" >> "$GITHUB_OUTPUT"
+              ;;
+            1)
+              echo "detected=true" >> "$GITHUB_OUTPUT"
+              echo "tool_error=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "detected=false" >> "$GITHUB_OUTPUT"
+              echo "tool_error=true" >> "$GITHUB_OUTPUT"
+              echo "::error title=AI Detection Tool Error::The detector exited with code $status."
+              ;;
+          esac
+
+          exit 0
+
+      - name: Read detection summary
+        id: summary
+        if: ${{ !cancelled() && steps.detection.conclusion == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -f "$SUMMARY_FILE" ]; then
+            cat "$SUMMARY_FILE"
+
+            while IFS='=' read -r key value; do
+              if [ -n "$key" ]; then
+                echo "$key=$value" >> "$GITHUB_OUTPUT"
+              fi
+            done < "$SUMMARY_FILE"
+          fi
+
+      - name: Publish job summary
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## AI Detection"
+            echo
+            echo "- Scope: ${{ steps.scope.outputs.label || 'not determined' }}"
+            echo "- Threshold: ${SLOP_THRESHOLD:-10}/100"
+
+            if [ "${{ steps.detection.outputs.detected || 'false' }}" = "true" ]; then
+              echo "- Result: **failed** (threshold reached)"
+            elif [ "${{ steps.detection.outputs.tool_error || 'false' }}" = "true" ]; then
+              echo "- Result: **tool error**"
+            elif [ "${{ steps.scope.outputs.mode || 'none' }}" = "none" ]; then
+              echo "- Result: **passed** - no PHP changes to analyze"
+            elif [ "${{ steps.detection.conclusion || 'skipped' }}" = "success" ]; then
+              echo "- Result: **passed**"
+            else
+              echo "- Result: not run"
+            fi
+
+            echo
+
+            if [ -f "$REPORT_FILE" ]; then
+              echo "<details open>"
+              echo "<summary>Detection report</summary>"
+              echo
+              cat "$REPORT_FILE"
+              echo
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload AI detection reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-detection-reports
+          path: build/reports/slop/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Prepare pull request comment
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          out="$REPORT_DIR/pr-comment.md"
+
+          {
+            echo "<!-- AI-DETECTION-REPORT -->"
+            echo "## AI Detection"
+            echo
+
+            if [ "${{ steps.scope.outputs.mode || 'none' }}" = "none" ]; then
+              echo "**Result: passed** - this pull request does not change any PHP sources."
+            elif [ "${{ steps.detection.conclusion || 'skipped' }}" != "success" ]; then
+              echo "**Result: not run** - detection did not complete."
+              echo
+              echo "Check the workflow logs for the failure."
+            elif [ "${{ steps.detection.outputs.tool_error || 'false' }}" = "true" ]; then
+              echo "**Result: tool error** - the detector could not complete."
+              echo
+              echo "Check the workflow logs for details."
+            elif [ "${{ steps.detection.outputs.detected || 'false' }}" = "true" ]; then
+              echo "**Result: failed** - the score reached the configured threshold."
+              echo
+              echo "| Metric | Value |"
+              echo "| --- | --- |"
+              echo "| Score | ${{ steps.summary.outputs.score || 'n/a' }}/100 |"
+              echo "| Threshold | ${SLOP_THRESHOLD:-10}/100 |"
+              echo "| Files analyzed | ${{ steps.summary.outputs.files_analyzed || 'n/a' }} |"
+            else
+              echo "**Result: passed** - the score stayed below the configured threshold."
+              echo
+              echo "| Metric | Value |"
+              echo "| --- | --- |"
+              echo "| Score | ${{ steps.summary.outputs.score || 'n/a' }}/100 |"
+              echo "| Threshold | ${SLOP_THRESHOLD:-10}/100 |"
+              echo "| Files analyzed | ${{ steps.summary.outputs.files_analyzed || 'n/a' }} |"
+            fi
+
+            echo
+            echo "<details>"
+            echo "<summary>Full detection report</summary>"
+            echo
+
+            if [ -f "$REPORT_FILE" ]; then
+              cat "$REPORT_FILE"
+            else
+              echo "The detection report was not generated."
+            fi
+
+            echo
+            echo "</details>"
+            echo
+            echo "---"
+            echo "_Heuristic analysis only. This report does not prove AI authorship._"
+            echo "_Add \`@generated\` or \`ai-detect:ignore\` to a file to exclude it, "
+            echo "or raise the threshold with the workflow dispatch input._"
+          } > "$out"
+
+      - name: Comment on pull request
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const marker = '<!-- AI-DETECTION-REPORT -->';
+            const commentPath = 'build/reports/slop/pr-comment.md';
+
+            let body = fs.existsSync(commentPath)
+              ? fs.readFileSync(commentPath, 'utf8')
+              : `${marker}\n## AI Detection\n\nReport unavailable. Check the workflow logs.`;
+
+            const maxLength = 60000;
+
+            if (body.length > maxLength) {
+              body = body.substring(0, maxLength)
+                + '\n\n_Comment truncated. Download the `ai-detection-reports` artifact for the full report._';
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 }
+            );
+
+            const existing = comments.find(comment =>
+              comment.body &&
+              comment.body.includes(marker) &&
+              (comment.user?.type === 'Bot' ||
+                comment.user?.login === 'github-actions[bot]')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body
+              });
+            }
+
+      - name: Note skipped comment for fork pull requests
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        shell: bash
+        run: |
+          echo "Skipping the report comment: fork pull requests have a read-only token." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce AI detection gate
+        if: ${{ !cancelled() && steps.detection.conclusion == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ steps.detection.outputs.tool_error }}" = "true" ]; then
+            echo "::error title=AI Detection::The detector failed to run (exit code ${{ steps.detection.outputs.exit_code }})."
+            echo "The AI detection tool failed. See the logs above."
+            exit 1
+          fi
+
+          if [ "${{ steps.detection.outputs.detected }}" = "true" ]; then
+            score="${{ steps.summary.outputs.score }}"
+            threshold="${{ steps.summary.outputs.threshold }}"
+            highest="${{ steps.summary.outputs.highest_file }}"
+
+            if [ -n "$highest" ]; then
+              echo "::error file=$highest,line=1,title=AI Detection::This file scored ${{ steps.summary.outputs.max_file_score }}/100."
+            fi
+
+            echo "::error title=AI Detection::AI-like pattern score ${score:-?}/100 reached the threshold of ${threshold:-?}/100."
+            echo "AI-like patterns reached the configured threshold."
+            echo "Download the ai-detection-reports artifact for the per-file evidence."
+            exit 1
+          fi
+
+          echo "AI detection passed."
