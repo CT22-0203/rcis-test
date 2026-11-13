@@ -23,7 +23,22 @@
         }
     },
     "scripts": {
-        "test": "phpunit"
+        "test": "phpunit",
+        "tools:install": "@composer install --working-dir=.github/tools/lint --no-interaction --no-progress",
+        "ai": "@php .github/tools/slop/run.php --threshold 10 . build/reports/slop/ai-pattern-report.txt",
+        "phpcs": "@php .github/tools/lint/vendor/bin/phpcs --standard=phpcs.xml",
+        "checkstyle": "@phpcs",
+        "phpmd": "@php .github/tools/lint/vendor/bin/phpmd analyze --format=text --ruleset=phpmd.xml --exclude=vendor/*,tests/* .",
+        "phpcpd": [
+            "@php -r \"@mkdir('build/reports', 0777, true);\"",
+            "@php .github/tools/lint/vendor/bin/phpcpd --min-lines 5 --min-tokens 70 --exclude vendor --exclude tests --exclude .github --log-pmd build/reports/cpd-report.xml ."
+        ],
+        "check": [
+            "@phpcs",
+            "@phpmd",
+            "@phpcpd",
+            "@ai"
+        ]
     },
     "config": {
         "sort-packages": true,

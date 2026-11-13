@@ -16,3 +16,6 @@ Thumbs.db
 
 # User uploads if any (none yet)
 /public/uploads/
+
+# Generated check reports (AI detection, PHPCS, PHPMD, PHPCPD)
+/build/

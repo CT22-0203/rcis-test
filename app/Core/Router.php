@@ -42,6 +42,8 @@ final class Router
      * @param string $method  HTTP verb
      * @param string $path    e.g. "/accounts/{id}/edit"
      * @param array  $handler [ControllerClass::class, 'methodName']
+     *
+     * @SuppressWarnings(PHPMD.ShortVariable)
      */
     private function add(string $method, string $path, array $handler): void
     {

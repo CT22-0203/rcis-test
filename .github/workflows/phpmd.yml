@@ -1,0 +1,57 @@
+name: PHPMD
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: '36 22 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  phpmd:
+    name: Run PHPMD scanning
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: phpmd
+
+      - name: Check PHPMD Version
+        run: phpmd --version
+
+      - name: Run PHPMD
+        id: phpmd
+        continue-on-error: true
+        run: |
+          phpmd analyze \
+            --format=sarif \
+            --ruleset=phpmd.xml \
+            --exclude='vendor/*,tests/*' \
+            . > phpmd-results.sarif
+
+      - name: Upload analysis results to GitHub
+        if: always() && hashFiles('phpmd-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: phpmd-results.sarif
+          wait-for-processing: true
+
+      - name: Fail build if PHPMD detects violations
+        if: steps.phpmd.outcome == 'failure'
+        run: exit 1
